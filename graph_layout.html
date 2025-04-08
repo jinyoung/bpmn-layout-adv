@@ -134,8 +134,67 @@
             constructor(graph) {
                 this.graph = graph;
                 this.layers = [];
+                this.feedbackEdges = []; // Store feedback edges that create cycles
             }
 
+            // New method: Detect and remove cycles in the graph
+            removeCycles() {
+                this.feedbackEdges = []; // Reset feedback edges
+                
+                // Create a copy of edges to avoid modifying while iterating
+                const originalEdges = [...this.graph.edges];
+                
+                // Detect cycles using DFS
+                let visited = new Set();
+                let stack = new Set();
+                
+                const detectCycle = (nodeId) => {
+                    if (stack.has(nodeId)) return true; // Found a cycle
+                    if (visited.has(nodeId)) return false; // Already processed
+                    
+                    visited.add(nodeId);
+                    stack.add(nodeId);
+                    
+                    for (const edge of this.graph.getOutgoingEdges(nodeId)) {
+                        if (detectCycle(edge.target)) {
+                            // This edge contributes to a cycle, mark it as a feedback edge
+                            this.feedbackEdges.push({source: edge.source, target: edge.target});
+                            // Remove the edge from the graph temporarily
+                            const idx = this.graph.edges.findIndex(e => 
+                                e.source === edge.source && e.target === edge.target);
+                            if (idx !== -1) {
+                                this.graph.edges.splice(idx, 1);
+                            }
+                            return true;
+                        }
+                    }
+                    
+                    stack.delete(nodeId);
+                    return false;
+                };
+                
+                // Run cycle detection from each node
+                for (const node of this.graph.nodes) {
+                    if (!visited.has(node.id)) {
+                        detectCycle(node.id);
+                    }
+                }
+                
+                console.log(`Removed ${this.feedbackEdges.length} feedback edges for layout`);
+                return this;
+            }
+            
+            // Method to restore feedback edges after layout
+            restoreFeedbackEdges() {
+                // Add all feedback edges back to the graph
+                this.feedbackEdges.forEach(edge => {
+                    this.graph.edges.push(edge);
+                });
+                
+                console.log(`Restored ${this.feedbackEdges.length} feedback edges`);
+                return this;
+            }
+            
             // Step 1: Assign nodes to layers
             assignLayers() {
                 // Reset layers
@@ -395,9 +454,15 @@
             
             // Run the complete layout algorithm
             run() {
-                this.assignLayers()
+                // Remove cycles before layout
+                this.removeCycles()
+                    .assignLayers()
                     .minimizeCrossings()
                     .assignCoordinates();
+                
+                // Restore feedback edges after layout
+                this.restoreFeedbackEdges();
+                
                 return this.graph;
             }
         }
@@ -546,10 +611,11 @@
                 graph.addNode(i, `Node ${i}`);
             }
             
-            // Add edges (ensuring it's a DAG for Sugiyama to work properly)
+            // Add edges (now allowing cycles)
             for (let i = 0; i < nodeCount; i++) {
-                for (let j = i + 1; j < nodeCount; j++) {
-                    if (Math.random() < edgeDensity) {
+                for (let j = 0; j < nodeCount; j++) {
+                    // Skip self-loops
+                    if (i !== j && Math.random() < edgeDensity) {
                         graph.addEdge(i, j);
                     }
                 }
